@@ -15,15 +15,18 @@ class Hydroshare(ContentProvider):
 
     def _urlopen(self, req, headers=None):
         """A urlopen() helper"""
-        # someone passed a string, not a request
-        if not isinstance(req, Request):
-            req = Request(req)
+        conn = urlopen(req)
+        while conn.info().get_content_type() != "application/zip":
+            if conn.getcode() != 200:
+                yield "Failed to download bag. status code {}.\n".format(conn.getcode())
+                return
+            wait_time = 10
+            yield "Bag is being prepared, requesting again in {} seconds.\n".format(wait_time)
+            time.sleep(wait_time)
+            conn = urlopen(req)
 
-        #req.add_header("User-Agent", "repo2docker {}".format(__version__))
-        if headers is not None:
-            for key, value in headers.items():
-                req.add_header(key, value)
-
+        # Bag creation seems to need a small time buffer after it says it's ready.
+        time.sleep(1)
         return urlopen(req)
 
     def _doi2url(self, doi):
@@ -71,19 +74,8 @@ class Hydroshare(ContentProvider):
         bag_url = "{}{}".format(host["django_irods"], resource_id)
 
         # bag downloads are prepared on demand and may need some time
-        conn = urlopen(bag_url)
-        while conn.info().get_content_type() != "application/zip":
-            if conn.getcode() != 200:
-                yield "Failed to download bag. status code {}.\n".format(conn.getcode())
-                return
-            wait_time = 10
-            yield "Bag is being prepared, requesting again in {} seconds.\n".format(wait_time)
-            time.sleep(wait_time)
-            conn = urlopen(bag_url)
+        filehandle = self._urlopen(bag_url)
 
-        # Bag creation seems to need a small time buffer after it says it's ready.
-        time.sleep(1)
-        filehandle, _ = urlretrieve(bag_url)
         zip_file_object = zipfile.ZipFile(filehandle, 'r')
         yield "Downloaded, unpacking contents.\n"
         zip_file_object.extractall("temp")
